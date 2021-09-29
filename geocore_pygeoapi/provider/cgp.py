@@ -239,10 +239,6 @@ class GeoCoreProvider(BaseProvider):
             feature['id'] = id_
             item['externalId'] = id_
 
-            LOGGER.debug(f"Item {id_}:")
-            for k, v in item.items():
-                LOGGER.debug(f"\t{k}: {v}")
-
             # Pop 'total' value for numberMatched property (for paging)
             total = str(item.pop('total', 0)).strip()
             if total.isdigit():
