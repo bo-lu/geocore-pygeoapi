@@ -24,8 +24,7 @@ DATE_REGEX = compile(r'(\d{4})-?(\d{0,2})-?(\d{0,2})[T| ]?(\d{0,2}):?(\d{0,2}):?
 
 LOGGER = logging.getLogger(__name__)
 
-# Set language globally (TODO)
-lang = "en"
+DEFAULT_LANG = 'en'
 
 
 class GeoCoreProvider(BaseProvider):
@@ -213,9 +212,15 @@ class GeoCoreProvider(BaseProvider):
             }
         }
 
-    def _to_geojson(self, json_obj, skip_geometry=False, single_feature=False):
+    @staticmethod
+    def _langcode(locale):
+        """ Retrieves the ISO 639-1 language code (str) from a Babel locale (or returns the default code). """
+        if hasattr(locale, 'language'):
+            return locale.language
+        return DEFAULT_LANG
+
+    def _to_geojson(self, json_obj, lang, skip_geometry=False, single_feature=False):
         """ Turns a regular geoCore JSON object into GeoJSON. """
-        global lang
 
         features = []
         num_matched = None
@@ -235,7 +240,11 @@ class GeoCoreProvider(BaseProvider):
             item['externalId'] = id_
 
             # Pop 'total' value for numberMatched property (for paging)
-            num_matched = int(item.pop('total', 0))
+            total = str(item.pop('total', 0)).strip()
+            if total.isdigit():
+                num_matched = int(total)
+            else:
+                LOGGER.warning(f'non-numeric total "{total}" encountered: paging might not work properly')
 
             # Rename and set/fix date properties
             date_created = self._asisodate(item.get('created'))
@@ -321,7 +330,7 @@ class GeoCoreProvider(BaseProvider):
 
     def query(self, startindex=0, limit=10, resulttype='results',
               bbox=[], datetime_=None, properties=[], sortby=[],
-              select_properties=[], skip_geometry=False, q=None):
+              select_properties=[], skip_geometry=False, q=None, language=None):
         """
         Performs a geoCore search.
 
@@ -335,6 +344,7 @@ class GeoCoreProvider(BaseProvider):
         :param select_properties: list of property names
         :param skip_geometry: bool of whether to skip geometry (default False)
         :param q: full-text search term(s)
+        :param language: Babel locale
 
         :returns: dict of 0..n GeoJSON features
         """
@@ -372,16 +382,21 @@ class GeoCoreProvider(BaseProvider):
             LOGGER.debug(f'Adding free-text search: {q}')
             params['keyword'] = q
 
+        # Set request language
+        lang = self._langcode(language)
+        params['lang'] = lang
+
         LOGGER.debug(f'querying {self._query_url}')
         json_obj = self._request_json(self._query_url, params)
 
         LOGGER.debug('turn geoCore JSON into GeoJSON')
-        return self._to_geojson(json_obj, skip_geometry)
+        return self._to_geojson(json_obj, lang, skip_geometry)
 
-    def get(self, identifier):
+    def get(self, identifier, language=None):
         """ Request a single geoCore record by ID.
 
         :param identifier:  The ID of the record to retrieve.
+        :param language:    Babel locale.
 
         :returns:   dict containing 1 GeoJSON feature
         :raises:    ProviderItemNotFoundError if identifier was not found
@@ -390,6 +405,10 @@ class GeoCoreProvider(BaseProvider):
             'id': identifier
         }
 
+        # Set request language
+        lang = self._langcode(language)
+        params['lang'] = lang
+
         LOGGER.debug(f'querying {self._get_url}')
         json_obj = self._request_json(self._get_url, params)
 
@@ -397,7 +416,7 @@ class GeoCoreProvider(BaseProvider):
             raise ProviderItemNotFoundError(f'record id {identifier} not found')
 
         LOGGER.debug('turn geoCore JSON into GeoJSON')
-        return self._to_geojson(json_obj, single_feature=True)
+        return self._to_geojson(json_obj, lang, single_feature=True)
 
     def __repr__(self):
         return f'<{self.__class__.__name__}> {self.data}'
